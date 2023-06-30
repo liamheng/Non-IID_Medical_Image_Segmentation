@@ -52,7 +52,7 @@ class FreesdgSegmentationModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
 
-        self.no_hfc = opt.no_hfc  # 输入时是否做HFC
+        self.no_hfc = opt.no_hfc  # whether to do hfc on input image
         self.hfc_filter = HFCFilter(opt.filter_width, opt.nsig, sub_low_ratio=1, sub_mask=True, is_clamp=True).to(
             self.device)
         self.do_mixup = opt.do_mixup
@@ -73,16 +73,13 @@ class FreesdgSegmentationModel(BaseModel):
             self.model_names = ['G']
             self.visual_names = self.visual_names_test
 
-        # define networks (both generator and discriminator)
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids,
                                       last_layer='Sigmoid', attention_type=opt.attention_type)
 
-        if self.isTrain:  # define a discriminator; conditional GANs need to take both input and output images; Therefore, #channels for D is input_nc + output_nc
-            # define loss functions
+        if self.isTrain:
             self.criterion_segmentation = getattr(torch.nn, opt.segmentation_loss)()
             self.criterionL1 = torch.nn.L1Loss()
-            # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.lambda_high = opt.lambda_high
@@ -91,9 +88,6 @@ class FreesdgSegmentationModel(BaseModel):
             self.confusion_matrix = metrics.Metric(opt.output_nc, threshold=opt.confusion_threshold)
 
     def set_input(self, input, isTrain=None):
-        """
-        set the input
-        """
         if not self.isTrain or isTrain is not None:
             self.image_original = input['image_original'].to(self.device)
             self.mask = input['mask'].to(self.device)
@@ -104,24 +98,21 @@ class FreesdgSegmentationModel(BaseModel):
                 self.mask_od = input['mask_od'].to(device=self.device)
         else:
             self.image_original = input['image_original'].to(self.device)
-            self.image_fact = input['image_fact'].to(self.device)
             self.mask = input['mask'].to(self.device)
             self.seg_label = input['label'].to(self.device)
-            self.image_target = input['target']
             self.image_paths = input['source_path']
             if self.no_fact:
                 self.high_original = hfc_mul_mask(self.hfc_filter, self.image_original, self.mask)
-                # 实话说这里no fda的话那不做mixup也没必要了
                 self.high_input = hfc_mul_mask(self.mixup_filter if self.do_mixup else self.hfc_filter, self.image_original,
                                           self.mask)
             else:
+                self.image_target = input['target']
+                self.image_fact = input['image_fact'].to(self.device)
                 self.high_original = hfc_mul_mask(self.hfc_filter, self.image_original, self.mask)
                 self.high_fact = hfc_mul_mask(self.mixup_filter if self.do_mixup else self.hfc_filter, self.image_fact,
                                           self.mask)
-            # print(self.seg_label.min(), self.seg_label.max())
 
     def forward(self):
-        """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.no_fact:
             self.high_out, self.seg_out = self.netG(self.image_original if self.no_hfc else self.high_input)
         else:
@@ -165,32 +156,18 @@ class FreesdgSegmentationModel(BaseModel):
                 net.train()
 
     def backward_G(self):
-        # L_high
-        # print(self.high_original.shape, self.high_out.shape)
-        # print(self.seg_out.min(), self.seg_out.max())
-        # print(self.seg_label.min(), self.seg_label.max())
-        # print(self.high_out.min(), self.high_out.max())
-        # print(self.high_original.min(), self.high_original.max())
-        # exit()
         self.loss_G_high = self.criterionL1(self.high_original, self.high_out) * self.lambda_high
-        # L_seg
-        # print(self.seg_label.shape, self.seg_out.shape)
         self.loss_G_seg = self.criterion_segmentation(self.seg_out, self.seg_label) * self.lambda_seg
-        # print(self.loss_G_seg)
-        # exit(0)
-
         self.loss_G = self.loss_G_high + self.loss_G_seg
         self.loss_G.backward()
 
     def optimize_parameters(self):
-        # self.set_requires_grad([self.netG], True)  # D requires no gradients when optimizing G
-        self.forward()  # compute fake images: G(A)
-        self.optimizer_G.zero_grad()  # set G's gradients to zero
-        self.backward_G()  # calculate graidents for G
-        self.optimizer_G.step()  # udpate G's weights
+        self.forward()
+        self.optimizer_G.zero_grad()
+        self.backward_G()
+        self.optimizer_G.step()
 
     def get_metric_results(self):
         results = self.confusion_matrix.evaluate()
         metrics_list = self.opt.metrics.split(',')
-        # return {name: results[name].item() for name in metrics_list}
         return {name: results[name][1].item() for name in metrics_list}

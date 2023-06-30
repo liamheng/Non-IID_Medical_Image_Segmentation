@@ -21,7 +21,7 @@ class ONLINEFACTDataset(BaseDataset):
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
-        parser.add_argument('--target_root', type=str, default='/home/lihaojin/data/eyepacs')
+        parser.add_argument('--target_root', type=str, default=None)
         parser.add_argument('--fact_l_lower', type=float, default=0.4)
         parser.add_argument('--fact_l_upper', type=float, default=0.8)
         parser.add_argument('--fact_mode', type=str, default='as')
@@ -39,29 +39,27 @@ class ONLINEFACTDataset(BaseDataset):
         self.target_root = opt.target_root
 
         assert (os.path.exists(self.data_root))
-        assert (os.path.exists(self.target_root))
+        if self.target_root is not None:
+            assert (os.path.exists(self.target_root))
 
         # self.len = len(os.listdir(os.path.join(self.data_root, 'original')))
         self.len = len(os.listdir(self.data_root))
 
-        self.target_list = os.listdir(self.target_root)
+        if self.target_root is not None:
+            self.target_list = os.listdir(self.target_root)
+            self.fda_module = fda.FDAModule(opt.fact_mode)
+            self.l_lower_bound = opt.fact_l_lower
+            self.l_upper_bound = opt.fact_l_upper
+
+            self.do_target_norm = opt.do_target_norm
+
+            assert (0 <= self.l_lower_bound <= self.l_upper_bound <= 1)
 
         assert (self.opt.load_size >= self.opt.crop_size)  # crop_size should be smaller than the size of loaded image
 
         self.input_nc = 3
         self.output_nc = 1
         self.isTrain = opt.isTrain
-
-        # if 'crop' not in opt.preprocess:
-        #     opt.preprocess += ',crop'
-
-        self.fda_module = fda.FDAModule(opt.fact_mode)
-        self.l_lower_bound = opt.fact_l_lower
-        self.l_upper_bound = opt.fact_l_upper
-
-        self.do_target_norm = opt.do_target_norm
-
-        assert(0 <= self.l_lower_bound <= self.l_upper_bound <= 1)
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -82,12 +80,14 @@ class ONLINEFACTDataset(BaseDataset):
         image_path = os.path.join(self.data_root, str(index), 'image.png')
         label_path = os.path.join(self.data_root, str(index), 'label.png')
         mask_path = os.path.join(self.data_root, str(index), 'mask.png')
-        target_path = os.path.join(self.target_root, random.choice(self.target_list))
+        if self.target_root is not None:
+            target_path = os.path.join(self.target_root, random.choice(self.target_list))
 
         image = Image.open(image_path).convert('RGB')
         label = Image.open(label_path).convert('L')
         mask = Image.open(mask_path).convert('L')
-        target = Image.open(target_path).convert('RGB')
+        if self.target_root is not None:
+            target = Image.open(target_path).convert('RGB')
 
         transform_params = get_params(self.opt, image.size)
         # original_transform, fact_transform, mask_transform, label_transform = \
@@ -97,20 +97,21 @@ class ONLINEFACTDataset(BaseDataset):
         image = raw_transform(image)
         mask = label_transform(mask)
         label = label_transform(label)
-        target = transforms.ToTensor()(target)
-
-        random_l = random.random() * (self.l_upper_bound - self.l_lower_bound) + self.l_lower_bound
-        fact = self.fda_module(image, target, random_l)
+        if self.target_root is not None:
+            target = transforms.ToTensor()(target)
+            random_l = random.random() * (self.l_upper_bound - self.l_lower_bound) + self.l_lower_bound
+            fact = self.fda_module(image, target, random_l)
 
         norm_func = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 
         image = norm_func(image)
-        if self.opt.do_target_norm:
-            target = norm_func(target)
-        fact = norm_func(fact) * mask + mask - 1
-
-        return {'image_original': image, 'image_fact': fact, 'mask': mask,
-                'source_path': image_path, 'label': label, 'target': target}
+        if self.target_root is not None:
+            if self.opt.do_target_norm:
+                target = norm_func(target)
+            fact = norm_func(fact) * mask + mask - 1
+            return {'image_original': image, 'image_fact': fact, 'mask': mask,
+                    'source_path': image_path, 'label': label, 'target': target}
+        return {'image_original': image, 'mask': mask, 'source_path': image_path, 'label': label}
 
     def __len__(self):
         """Return the total number of images in the dataset."""
