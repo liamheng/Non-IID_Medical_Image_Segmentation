@@ -1,6 +1,6 @@
 # Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation
 
-This repository is the official implementation of [Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation](https://arxiv.org/abs/2307.09005). This work has been accepted by MICCAI 2023.
+This repository contains the official implementation of [Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation](https://arxiv.org/abs/2307.09005). This work has been accepted by MICCAI 2023.
 
 ![](images/miccai2023.png)
 
@@ -61,4 +61,8 @@ If you find this work useful for your research, please cite our paper:
   organization={Springer}
 }
 ```
+
+# FreeSDG: Frequency-enabled Single-source Domain Generalization for Medical Image Segmentation
+
+The code for this project will be made publicly available soon.
 
