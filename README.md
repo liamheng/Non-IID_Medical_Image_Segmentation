@@ -4,6 +4,10 @@ This repository contains the official implementation of [Frequency-mixed Single-
 
 ![](images/miccai2023.png)
 
+# FreeSDG: Frequency-enabled Single-source Domain Generalization for Medical Image Segmentation
+
+The code for this project will be made publicly available soon.
+
 ## Datasets
 
 In the fundus vessel segmentation task, the training set DRIVE is available at [DRIVE](https://drive.grand-challenge.org/).
@@ -62,7 +66,5 @@ If you find this work useful for your research, please cite our paper:
 }
 ```
 
-# FreeSDG: Frequency-enabled Single-source Domain Generalization for Medical Image Segmentation
 
-The code for this project will be made publicly available soon.
 
