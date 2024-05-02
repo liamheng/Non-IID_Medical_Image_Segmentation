@@ -25,5 +25,12 @@ class TestOptions(BaseOptions):
         parser.add_argument('--save_variable_names', type=str, default='', help='save the images with this variable')
         parser.add_argument('--save_file_names', type=str, default='', help='save the images with this variable')
         parser.add_argument('--save_dir', type=str, default='', help='save the images with this variable')
+        parser.add_argument('--require_std', action='store_true', help='require standard deviation in testing procedure')
+
+        # used for comparison image selection
+        parser.add_argument('--output_single_results', action='store_true', help='output the final result to compare and select the best sample')
+        parser.add_argument('--output_dataset_name', type=str, default=None)
+        parser.add_argument('--output_filename', type=str, default=None)
+        parser.add_argument('--output_path', default='/home/lihaojin/data/result_cache')
         self.isTrain = False
         return parser

@@ -40,6 +40,34 @@ class CBAMSpatialAttention(nn.Module):
         return self.sigmoid(x)
 
 
+class CABlock(nn.Module):
+    def __init__(self, in_channel, do_residual=False, ca_ratio=16):
+        super(CABlock, self).__init__()
+
+        self.ca = CBAMChannelAttention(in_channel, ca_ratio)
+        self.do_residual = do_residual
+
+    def forward(self, x):
+        out = self.ca(x) * x
+        if self.do_residual:
+            out = out + x
+        return out
+
+
+class SABlock(nn.Module):
+    def __init__(self, in_channel, do_residual=False, sa_kernel_size=7):
+        super(SABlock, self).__init__()
+
+        self.sa = CBAMSpatialAttention(sa_kernel_size)
+        self.do_residual = do_residual
+
+    def forward(self, x):
+        out = self.sa(x) * x
+        if self.do_residual:
+            out = out + x
+        return out
+
+
 class CBAMBlock(nn.Module):
     def __init__(self, in_channel, mode='ca_first', do_residual=False, ca_ratio=16, sa_kernel_size=7):
         super(CBAMBlock, self).__init__()

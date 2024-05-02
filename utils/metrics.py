@@ -6,7 +6,7 @@
 """
 
 import torch
-from .confusion_matrix import confusion_matrix
+from utils.confusion_matrix import confusion_matrix
 
 
 class Metric:
@@ -22,12 +22,11 @@ class Metric:
     def update(self, output, target):
         if output.dim() == 4 and self.num_classes != 1:
             output = torch.max(output, dim=1)[1]
-
-        target = target > 0.5
         if self.num_classes == 1:
+            target = target > 0.5
             output = torch.where(output >= self.threshold, 1, 0)
-        output = output.int()
-        target = target.int()
+            output = output.int()
+            target = target.int()
 
         num_classes = 2 if self.num_classes == 1 else self.num_classes
 

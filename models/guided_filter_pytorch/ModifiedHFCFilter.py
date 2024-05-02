@@ -7,6 +7,7 @@ import cv2
 
 from torch import nn
 import torch.nn.functional as F
+from torchvision.transforms import transforms
 
 
 class HFCFilter(nn.Module, abc.ABC):
@@ -121,9 +122,11 @@ class FourierStepHFCFilter(HFCFilter):
                                                    sub_mask=sub_mask)
         self.image_size = image_size
 
+        ratio_min, ratio_max = 0.3, 1.0
+        step_ratio = ratio_min + (ratio_max - ratio_min) * step_ratio
+
         # distance transform
         d0 = int(max((step_ratio * min(*image_size)) // 2, 1))
-        corners = ((0, 0), (0, image_size[1] - 1), (image_size[0] - 1, image_size[1] - 1), (image_size[0] - 1, 0))
         self.filter_map = np.zeros(image_size, dtype=np.float32)
         self.filter_map = cv2.rectangle(self.filter_map, (0, 0), (d0, d0), 1, -1)  # up left
         self.filter_map = cv2.rectangle(self.filter_map, (0, image_size[1] - d0), (d0, image_size[1]), 1,
@@ -138,3 +141,8 @@ class FourierStepHFCFilter(HFCFilter):
         x_fft = torch.fft.fft2(x)
         x_fft_temp = x_fft * self.filter_map
         return torch.abs(torch.fft.ifft2(x_fft_temp))
+
+class IdentityHFCFilter(HFCFilter):
+    # actually, it's not a hfc filter
+    def get_hfc(self, x, mask):
+        return x

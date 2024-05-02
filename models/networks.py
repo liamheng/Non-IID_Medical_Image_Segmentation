@@ -4,15 +4,18 @@ import functools
 import torch.nn.functional as F
 from torch.nn import init
 from torch.optim import lr_scheduler
+
+from utils import dropout_modified
+from .backbone.unet_combine_2layer_attention_modified import UnetCombine2LayerAttentionModifiedGenerator
 from .guided_filter_pytorch.guided_filter import FastGuidedFilter
 from models.backbone.unet_combine_2layer import UnetCombine2LayerGenerator
 from models.backbone.unet_combine_2layer_attention import UnetCombine2LayerAttentionGenerator
+import models.attention_modules
 
 
 ###############################################################################
 # Helper Functions
 ###############################################################################
-
 
 class Identity(nn.Module):
     def forward(self, x):
@@ -32,6 +35,8 @@ def get_norm_layer(norm_type='instance'):
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+    elif norm_type == 'group':
+        norm_layer = functools.partial(nn.GroupNorm, num_groups=1)
     elif norm_type == 'none':
         def norm_layer(x):
             return Identity()
@@ -126,7 +131,8 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[], verbose=False)
 
 
 def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02,
-             gpu_ids=[], last_layer='Tanh', verbose=False, original_dense=False, attention_type='CBAMBlock'):
+             gpu_ids=(), last_layer='Tanh', verbose=False, original_dense=False, attention_type='CBAMBlock',
+             reverse_last=False, first_attention=False, second_attention=False):
     """Create a generator
 
     Parameters:
@@ -176,17 +182,27 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
                                          last_layer=last_layer)
     elif netG == 'unet_mo':
         net = UnetMO(input_nc, output_nc, ngf=ngf, norm_layer=norm_layer, use_dropout=use_dropout,
-                     last_layer=last_layer)
+                     last_layer=last_layer, reverse_last=reverse_last, first_attention=first_attention,
+                     second_attention=second_attention, attention_type=attention_type)
     elif netG == 'unet_cascade':
         net = UnetCascade(input_nc, output_nc, ngf=ngf, norm_layer=norm_layer, use_dropout=use_dropout,
                           last_layer=last_layer, original_dense=original_dense)
     elif netG == 'unet_combine_2layer_attention':
         net = UnetCombine2LayerAttentionGenerator(input_nc, output_nc, norm_layer=norm_layer, use_dropout=use_dropout,
                                                   last_layer=last_layer, attention_type=attention_type)
+    elif netG == 'unet_combine_2layer_attention_modified':
+        net = UnetCombine2LayerAttentionModifiedGenerator(input_nc, output_nc, norm_layer=norm_layer,
+                                                          use_dropout=use_dropout,
+                                                          last_layer=last_layer, attention_type=attention_type,
+                                                          reverse_last=reverse_last)
     elif netG == 'naive_autoencoder':
         net = NaiveAutoEncoder()
+    elif netG == 'naive_unet':
+        net = SingleUnet(input_nc, output_nc, ngf=ngf, norm_layer=norm_layer, use_dropout=use_dropout,
+                         last_layer=last_layer)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
+
     return init_net(net, init_type, init_gain, gpu_ids, verbose)
 
 
@@ -1010,20 +1026,19 @@ class UnetMultiOutputBlock(nn.Module):
 
 class MultiConv(nn.Module):
     def __init__(self, input_nc, output_nc, conv_block_num=2, kernel_size=3, use_bias=False, norm_func=nn.BatchNorm2d,
-                 activation_func=nn.ReLU, use_dropout=False):
+                 activation_func=nn.ReLU, use_dropout=dropout_modified.DROPOUT_NONE):
         super(MultiConv, self).__init__()
         assert conv_block_num >= 1
         main_conv_list = [nn.Conv2d(input_nc, output_nc, kernel_size=kernel_size, stride=1, padding=1, bias=use_bias),
-                          norm_func(output_nc), activation_func(inplace=True)] + (
-                             [nn.Dropout(0.5)] if use_dropout else [])
+                          norm_func(output_nc), activation_func(inplace=True)] + [
+                             dropout_modified.get_dropout(use_dropout)]
 
         for _ in range(conv_block_num - 1):
             main_conv_list.append(
                 nn.Conv2d(output_nc, output_nc, kernel_size=kernel_size, stride=1, padding=1, bias=use_bias))
             main_conv_list.append(norm_func(output_nc))
             main_conv_list.append(activation_func(inplace=True))
-            if use_dropout:
-                main_conv_list.append(nn.Dropout(0.5))
+            main_conv_list.append(dropout_modified.get_dropout(use_dropout))
         self.main_conv = nn.Sequential(*main_conv_list)
 
     def forward(self, x):
@@ -1031,8 +1046,10 @@ class MultiConv(nn.Module):
 
 
 class UnetMO(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False,
-                 last_layer='Sigmoid', activation_func=nn.ReLU, kernel_size=3, conv_num=2):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d,
+                 use_dropout=dropout_modified.DROPOUT_NONE,
+                 last_layer='Sigmoid', activation_func=nn.ReLU, kernel_size=3, conv_num=2, reverse_last=False,
+                 attention_type='CBAMBlock', first_attention=False, second_attention=False):
         super(UnetMO, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -1083,15 +1100,34 @@ class UnetMO(nn.Module):
         self.h_up_up_4 = nn.ConvTranspose2d(ngf * 16, ngf * 8, kernel_size=2, stride=2, padding=0,
                                             bias=use_bias)
 
-        self.out = nn.Sequential(
-            nn.Conv2d(ngf, output_nc, kernel_size=1, padding=0),
-            getattr(torch.nn, last_layer)()
-        )
+        if first_attention:
+            self.h_at1 = models.attention_modules.find_model_using_name(attention_type)(ngf * 2)
+            self.h_at2 = models.attention_modules.find_model_using_name(attention_type)(ngf * 4)
+            self.h_at3 = models.attention_modules.find_model_using_name(attention_type)(ngf * 8)
+            self.h_at4 = models.attention_modules.find_model_using_name(attention_type)(ngf * 16)
+        else:
+            self.h_at1 = nn.Identity()
+            self.h_at2 = nn.Identity()
+            self.h_at3 = nn.Identity()
+            self.h_at4 = nn.Identity()
 
-        self.h_out = nn.Sequential(
-            nn.Conv2d(ngf, 3, kernel_size=1, padding=0),
-            nn.Tanh()
-        )
+        if second_attention:
+            self.at1 = models.attention_modules.find_model_using_name(attention_type)(ngf * 2)
+            self.at2 = models.attention_modules.find_model_using_name(attention_type)(ngf * 4)
+            self.at3 = models.attention_modules.find_model_using_name(attention_type)(ngf * 8)
+            self.at4 = models.attention_modules.find_model_using_name(attention_type)(ngf * 16)
+        else:
+            self.at1 = nn.Identity()
+            self.at2 = nn.Identity()
+            self.at3 = nn.Identity()
+            self.at4 = nn.Identity()
+
+        if reverse_last:
+            self.out = nn.Sequential(nn.Conv2d(ngf, 3, kernel_size=1, padding=0), nn.Tanh())
+            self.h_out = nn.Sequential(nn.Conv2d(ngf, output_nc, kernel_size=1, padding=0), getattr(torch.nn, last_layer)())
+        else:
+            self.out = nn.Sequential(nn.Conv2d(ngf, output_nc, kernel_size=1, padding=0), getattr(torch.nn, last_layer)())
+            self.h_out = nn.Sequential(nn.Conv2d(ngf, 3, kernel_size=1, padding=0), nn.Tanh())
 
     def forward(self, x):
         x1 = self.down_conv_1(x)
@@ -1101,21 +1137,29 @@ class UnetMO(nn.Module):
         x5 = self.down_conv_5(self.down_down(x4))
 
         h_u4 = torch.cat([x4, self.h_up_up_4(x5)], dim=1)
+        h_u4 = self.h_at4(h_u4)
         h_y4 = self.h_up_conv_4(h_u4)
         h_u3 = torch.cat([x3, self.h_up_up_3(h_y4)], dim=1)
+        h_u3 = self.h_at3(h_u3)
         h_y3 = self.h_up_conv_3(h_u3)
         h_u2 = torch.cat([x2, self.h_up_up_2(h_y3)], dim=1)
+        h_u2 = self.h_at2(h_u2)
         h_y2 = self.h_up_conv_2(h_u2)
         h_u1 = torch.cat([x1, self.h_up_up_1(h_y2)], dim=1)
+        h_u1 = self.h_at1(h_u1)
         h_y1 = self.h_up_conv_1(h_u1)
 
         u4 = torch.cat([h_y4, self.up_up_4(x5)], dim=1)
+        u4 = self.at4(u4)
         y4 = self.up_conv_4(u4)
         u3 = torch.cat([h_y3, self.up_up_3(y4)], dim=1)
+        u3 = self.at3(u3)
         y3 = self.up_conv_3(u3)
         u2 = torch.cat([h_y2, self.up_up_2(y3)], dim=1)
+        u2 = self.at2(u2)
         y2 = self.up_conv_2(u2)
         u1 = torch.cat([h_y1, self.up_up_1(y2)], dim=1)
+        u1 = self.at1(u1)
         y1 = self.up_conv_1(u1)
 
         o_h = self.h_out(h_y1)
@@ -1125,11 +1169,15 @@ class UnetMO(nn.Module):
 
 
 class SingleUnet(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, last_layer='Sigmoid',
-                 activation_func=nn.ReLU, kernel_size=3, conv_num=2, use_bias=False, all_output=False):
+    ALL_OUTPUT = 1
+    PART_OUTPUT = 2
+    ONE_OUTPUT = 3
+
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=dropout_modified.DROPOUT_NONE, last_layer='Sigmoid',
+                 activation_func=nn.ReLU, kernel_size=3, conv_num=2, use_bias=False, output_mode=ONE_OUTPUT):
         super(SingleUnet, self).__init__()
 
-        self.all_output = all_output
+        self.output_mode = output_mode
 
         self.down_down = nn.MaxPool2d(2, 2)
         self.down_conv_1 = MultiConv(input_nc, ngf, conv_num, kernel_size, use_bias, norm_layer, activation_func,
@@ -1155,8 +1203,7 @@ class SingleUnet(nn.Module):
         self.up_up_1 = nn.ConvTranspose2d(ngf * 2, ngf, kernel_size=2, stride=2, padding=0, bias=use_bias)
         self.up_up_2 = nn.ConvTranspose2d(ngf * 4, ngf * 2, kernel_size=2, stride=2, padding=0, bias=use_bias)
         self.up_up_3 = nn.ConvTranspose2d(ngf * 8, ngf * 4, kernel_size=2, stride=2, padding=0, bias=use_bias)
-        self.up_up_4 = nn.ConvTranspose2d(ngf * 16, ngf * 8, kernel_size=2, stride=2, padding=0,
-                                          bias=use_bias)
+        self.up_up_4 = nn.ConvTranspose2d(ngf * 16, ngf * 8, kernel_size=2, stride=2, padding=0, bias=use_bias)
 
         self.out = nn.Sequential(
             nn.Conv2d(ngf, output_nc, kernel_size=1, padding=0),
@@ -1181,9 +1228,11 @@ class SingleUnet(nn.Module):
 
         o = self.out(y1)
 
-        if self.all_output:
+        if self.output_mode == SingleUnet.ALL_OUTPUT:
             return o, y1, x1, y2, y3, y4
-        return o, y1, x1
+        elif self.output_mode == SingleUnet.PART_OUTPUT:
+            return o, y1, x1
+        return o
 
 
 class UnetCascade(nn.Module):
@@ -1198,9 +1247,10 @@ class UnetCascade(nn.Module):
         self.original_dense = original_dense
 
         self.unet_1 = SingleUnet(input_nc, 3, ngf, norm_layer, use_dropout, 'Tanh', activation_func,
-                                 kernel_size, conv_num, use_bias)
+                                 kernel_size, conv_num, use_bias, output_mode=SingleUnet.PART_OUTPUT)
         self.unet_2 = SingleUnet(ngf * 2 if original_dense else ngf, output_nc, ngf, norm_layer, use_dropout,
-                                 last_layer, activation_func, kernel_size, conv_num, use_bias)
+                                 last_layer, activation_func, kernel_size, conv_num, use_bias,
+                                 output_mode=SingleUnet.PART_OUTPUT)
 
     def forward(self, x):
         h_o, y1, x1 = self.unet_1(x)
@@ -1235,4 +1285,3 @@ class NaiveAutoEncoder(nn.Module):
         result = torch.nn.Tanh()(self.decoder(latent_vector))
 
         return latent_vector, result
-

@@ -1,8 +1,14 @@
 # Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation
 
-This repository is the official implementation of [Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation](https://arxiv.org/abs/2307.09005). This work has been accepted by MICCAI 2023.
+This repository contains the official implementation of [Frequency-mixed Single-source Domain Generalization for Medical Image Segmentation](https://arxiv.org/abs/2307.09005). This work has been accepted by MICCAI 2023.
 
 ![](images/miccai2023.png)
+
+# RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation
+
+This repository contains the official implementation of [RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation]().
+
+![](images/raffesdg.png)
 
 ## Datasets
 
@@ -38,10 +44,16 @@ Before running the training code, you need to start the visdom server by running
 python -m visdom.server -p <some free port> --host 0.0.0.0
 ```
 
-The training code is in `train.py`. The training command is as follows:
+The training command of FreeSDG is as follows:
 
 ```
-python train.py --dataroot <your training set directory> --gpu_ids <gpu id> --display_port <visdom port> --name freesdg --model freesdg_segmentation --lr 0.001 --n_epochs 20 --preprocess flip --print_freq 10 --display_freq 40 --save_epoch_freq 1 --n_epochs_decay 30 --sample_repeat 10 --no_dropout --netG unet_combine_2layer_attention --input_nc 3 --output_nc 1 --load_size 512 --dataset_mode online_fact --norm instance --batch_size 2 --do_mixup --mixup_size -1 --no_fact
+python procedure_freesdg/train.py --dataroot <your training set directory> --gpu_ids <gpu id> --display_port <visdom port> --name freesdg --model freesdg_segmentation --lr 0.001 --n_epochs 20 --preprocess flip --print_freq 10 --display_freq 40 --save_epoch_freq 1 --n_epochs_decay 30 --sample_repeat 10 --no_dropout --netG unet_combine_2layer_attention --input_nc 3 --output_nc 1 --load_size 512 --dataset_mode online_fact --norm instance --batch_size 2 --do_mixup --mixup_size -1 --no_fact
+```
+
+The training command of RaffeSDG is as follows:
+
+```
+python procedure_raffesdg/train.py --dataroot <your training set directory> --gpu_ids <gpu id> --display_port <visdom port> --lr 0.001 --n_epochs 10 --preprocess flip --print_freq 10 --display_freq 40 --save_epoch_freq 1 --n_epochs_decay 10 --name raffesdg --model raffesdg_segmentation --netG unet_mo --input_nc 3 --output_nc 1 --load_size 512 --dataset_mode online_fact --norm instance --batch_size 2 --mixup_type smooth --mixup_remain_original --time_prefix --lambda_high 1.0 --do_mixup --dropout_type 2 --reconstruction_loss MSELoss --second_attention --attention_type CABlock --drop_last
 ```
 
 ## Acknowledgment
@@ -49,7 +61,7 @@ This work was supported in part by Basic and Applied Fundamental Research Founda
 
 ## Citation
 
-If you find this work useful for your research, please cite our paper:
+If you find our works useful for your research, please cite our paper:
 
 ```
 @inproceedings{li2023frequency,
@@ -61,4 +73,6 @@ If you find this work useful for your research, please cite our paper:
   organization={Springer}
 }
 ```
+
+
 

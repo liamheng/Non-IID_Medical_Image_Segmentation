@@ -2,6 +2,8 @@ import os
 import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
+
+from utils import metrics_with_std, metrics
 from . import networks
 
 
@@ -42,6 +44,12 @@ class BaseModel(ABC):
         self.optimizers = []
         self.image_paths = []
         self.metric = 0  # used for learning rate policy 'plateau'
+
+        if not self.isTrain:
+            if opt.require_std:
+                self.confusion_matrix = metrics_with_std.Metric(opt.output_nc, threshold=opt.confusion_threshold)
+            else:
+                self.confusion_matrix = metrics.Metric(opt.output_nc, threshold=opt.confusion_threshold)
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -238,4 +246,13 @@ class BaseModel(ABC):
                     param.requires_grad = requires_grad
 
     def get_metric_results(self):
-        return {}
+        metrics_list = self.opt.metrics.split(',')
+        if self.opt.require_std:
+            if self.opt.output_single_results:
+                results = self.confusion_matrix.evaluate()
+                return {name: results[name] for name in metrics_list}
+            average, std = self.confusion_matrix.evaluate()
+            return {name: average[name][1].item() for name in metrics_list}, {name: std[name][1].item() for name in
+                                                                              metrics_list}
+        results = self.confusion_matrix.evaluate()
+        return {name: results[name][1].item() for name in metrics_list}

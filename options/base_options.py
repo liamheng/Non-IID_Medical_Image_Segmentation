@@ -68,6 +68,9 @@ class BaseOptions():
         parser.add_argument('--aspect_ratio', type=float, default=1.0, help='aspect ratio of result images')
         parser.add_argument('--target_gt_dir', type=str, default='target_gt')
         parser.add_argument('--use_wandb', action='store_true', help='use wandb')
+        parser.add_argument('--drop_last', action='store_true')
+
+        parser.add_argument('--result_output_file_path', type=str, default=None, help='if not specified, no output to file')
 
         self.initialized = True
         return parser
