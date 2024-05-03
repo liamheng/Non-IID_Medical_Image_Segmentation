@@ -6,7 +6,7 @@ This repository contains the official implementation of [Frequency-mixed Single-
 
 # RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation
 
-This repository contains the official implementation of [RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation]().
+This repository contains the official implementation of [RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation](http://arxiv.org/abs/2405.01228).
 
 ![](images/raffesdg.png)
 
