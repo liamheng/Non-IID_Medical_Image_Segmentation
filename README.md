@@ -10,6 +10,12 @@ This repository contains the official implementation of [RaffeSDG: Random Freque
 
 ![](images/raffesdg.png)
 
+# AIF-SFDA: Autonomous Information Filter-driven Source-Free Domain Adaptation for Medical Image Segmentation
+
+This repository contains the official implementation of [RaffeSDG: Random Frequency Filtering enabled Single-source Domain Generalization for Medical Image Segmentation](). This work has been accepted by AAAI 2025.
+
+![](images/aif_sfda.png)
+
 ## Datasets
 
 In the fundus vessel segmentation task, the training set DRIVE is available at [DRIVE](https://drive.grand-challenge.org/).
