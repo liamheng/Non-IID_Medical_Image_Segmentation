@@ -211,12 +211,3 @@ class OfflineMaskGenerator(MaskGenerator):
             offline_mask = cv2.resize(offline_mask, (self.width, self.height))
         return offline_mask
 
-
-if __name__ == '__main__':
-    # mask = MaskGenerator.get_mask_generator_by_name('DT4MaskGenerator').generate_mask()
-    # # print(mask_generated.shape)
-    # import matplotlib.pyplot as plt
-    # plt.imshow(mask)
-    # plt.show()
-    generator = OfflineMaskGenerator(mask_path='/data/lihaojin/random_mask')
-    generator.generate_mask()
